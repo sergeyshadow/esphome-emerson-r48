@@ -1,0 +1,178 @@
+# packages/psu.yaml
+# Reusable package for a single Emerson/Vertiv R48 rectifier
+#
+# Required substitutions / vars:
+#   prefix          - unique id prefix (psu1, psu2, psu3)
+#   name            - friendly name ("PSU1", "PSU2", ...)
+#   command_id      - command CAN ID (e.g. 0x06080783)
+#   response_id     - status response CAN ID (e.g. 0x060F8007)
+
+sensor:
+  - platform: template
+    name: "${name} Output Voltage"
+    id: ${prefix}_voltage
+    unit_of_measurement: "V"
+    device_class: voltage
+    accuracy_decimals: 2
+    update_interval: never
+
+  - platform: template
+    name: "${name} Output Current"
+    id: ${prefix}_current
+    unit_of_measurement: "A"
+    device_class: current
+    accuracy_decimals: 2
+    update_interval: never
+
+  - platform: template
+    name: "${name} Current Limit"
+    id: ${prefix}_current_limit
+    unit_of_measurement: "A"
+    accuracy_decimals: 1
+    update_interval: never
+
+  - platform: template
+    name: "${name} Temperature"
+    id: ${prefix}_temperature
+    unit_of_measurement: "°C"
+    device_class: temperature
+    accuracy_decimals: 1
+    update_interval: never
+
+  - platform: template
+    name: "${name} Input Voltage"
+    id: ${prefix}_input_voltage
+    unit_of_measurement: "V"
+    device_class: voltage
+    accuracy_decimals: 1
+    update_interval: never
+
+  - platform: template
+    name: "${name} Output Power"
+    id: ${prefix}_power
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: 3s
+    lambda: |-
+      if (id(${prefix}_voltage).has_state() && id(${prefix}_current).has_state())
+        return id(${prefix}_voltage).state * id(${prefix}_current).state;
+      return {};
+
+  - platform: template
+    name: "${name} Power Limit"
+    id: ${prefix}_power_limit
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: 3s
+    lambda: |-
+      if (id(${prefix}_voltage).has_state() && id(${prefix}_current_limit).has_state())
+        return id(${prefix}_voltage).state * id(${prefix}_current_limit).state;
+      return {};
+
+binary_sensor:
+  - platform: template
+    name: "${name} Overtemperature"
+    id: ${prefix}_overtemp
+    device_class: problem
+
+  - platform: template
+    name: "${name} Fan Failure"
+    id: ${prefix}_fan_fail
+    device_class: problem
+
+  - platform: template
+    name: "${name} AC Power Limitation"
+    id: ${prefix}_ac_limit
+    device_class: problem
+
+  - platform: template
+    name: "${name} Fault"
+    id: ${prefix}_fault
+    device_class: problem
+
+number:
+  - platform: template
+    name: "${name} Set Voltage"
+    id: ${prefix}_set_voltage
+    min_value: 43.0
+    max_value: 58.0
+    step: 0.1
+    unit_of_measurement: "V"
+    optimistic: true
+    restore_value: true
+    set_action:
+      - lambda: |-
+          union { float f; uint32_t raw; } conv;
+          conv.f = x;
+          uint8_t data1[8] = {
+            0x03, 0xF0, 0x00, 0x21,
+            (uint8_t)(conv.raw >> 24), (uint8_t)(conv.raw >> 16),
+            (uint8_t)(conv.raw >> 8),  (uint8_t)(conv.raw)
+          };
+          id(can_bus).send_data(${command_id}, true, false, std::vector<uint8_t>(data1, data1 + 8));
+          uint8_t data2[8] = {
+            0x03, 0xF0, 0x00, 0x24,
+            (uint8_t)(conv.raw >> 24), (uint8_t)(conv.raw >> 16),
+            (uint8_t)(conv.raw >> 8),  (uint8_t)(conv.raw)
+          };
+          id(can_bus).send_data(${command_id}, true, false, std::vector<uint8_t>(data2, data2 + 8));
+
+  - platform: template
+    name: "${name} Set Current Limit"
+    id: ${prefix}_set_current_limit
+    min_value: 0.0
+    max_value: 60.0
+    step: 0.5
+    unit_of_measurement: "A"
+    optimistic: true
+    set_action:
+      - lambda: |-
+          float ratio = x / 60.0f;
+          union { float f; uint32_t raw; } conv;
+          conv.f = ratio;
+          uint8_t data1[8] = {
+            0x03, 0xF0, 0x00, 0x22,
+            (uint8_t)(conv.raw >> 24), (uint8_t)(conv.raw >> 16),
+            (uint8_t)(conv.raw >> 8),  (uint8_t)(conv.raw)
+          };
+          id(can_bus).send_data(${command_id}, true, false, std::vector<uint8_t>(data1, data1 + 8));
+          uint8_t data2[8] = {
+            0x03, 0xF0, 0x00, 0x19,
+            (uint8_t)(conv.raw >> 24), (uint8_t)(conv.raw >> 16),
+            (uint8_t)(conv.raw >> 8),  (uint8_t)(conv.raw)
+          };
+          id(can_bus).send_data(${command_id}, true, false, std::vector<uint8_t>(data2, data2 + 8));
+
+  - platform: template
+    name: "${name} Fan Mode"
+    id: ${prefix}_fan_mode
+    min_value: 0
+    max_value: 1
+    step: 1
+    optimistic: true
+    set_action:
+      - lambda: |-
+          uint8_t data[8] = {
+            0x03, 0xF0, 0x00, 0x33,
+            0x00, (uint8_t)x, 0x00, 0x00
+          };
+          id(can_bus).send_data(${command_id}, true, false, std::vector<uint8_t>(data, data + 8));
+
+switch:
+  - platform: template
+    name: "${name} Output Enable"
+    id: ${prefix}_output_enable
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - lambda: |-
+          uint8_t data[8] = {0x03, 0xF0, 0x00, 0x30, 0x00, 0x00, 0x00, 0x00};
+          id(can_bus).send_data(${command_id}, true, false, std::vector<uint8_t>(data, data + 8));
+    turn_off_action:
+      - lambda: |-
+          uint8_t data[8] = {0x03, 0xF0, 0x00, 0x30, 0x00, 0x00, 0x00, 0x01};
+          id(can_bus).send_data(${command_id}, true, false, std::vector<uint8_t>(data, data + 8));

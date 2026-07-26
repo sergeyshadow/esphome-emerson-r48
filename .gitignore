@@ -1,0 +1,13 @@
+# ESPHome
+.esphome/
+secrets.yaml
+
+# Logs
+*.log
+*.txt
+
+# macOS
+.DS_Store
+
+# VS Code
+.vscode/

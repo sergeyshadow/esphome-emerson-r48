@@ -1,0 +1,115 @@
+# packages/can_bus.yaml
+# CAN bus setup + automatic detection of Emerson R48 modules
+# Required substitutions: can_tx_pin, can_rx_pin
+# Also expects psu1/2/3_response_id
+
+globals:
+  - id: seen_modules
+    type: std::set<uint32_t>
+    restore_value: no
+
+canbus:
+  - platform: esp32_can
+    id: can_bus
+    tx_pin: ${can_tx_pin}
+    rx_pin: ${can_rx_pin}
+    can_id: 4
+    bit_rate: 125kbps
+    use_extended_id: true
+    on_frame:
+      # Discovery (heartbeats 0x0707F8xx)
+      - can_id: 0x0707F800
+        can_id_mask: 0x1FFFFF00
+        use_extended_id: true
+        then:
+          - lambda: |-
+              uint32_t hb = can_id;
+              if (id(seen_modules).count(hb) > 0) return;
+              id(seen_modules).insert(hb);
+
+              uint8_t low = hb & 0xFF;
+              uint32_t response_id = 0x060F8000 | ((low + 4) & 0xFF);
+              uint32_t command_id  = 0x06080000 | (uint32_t(low) << 8) | 0x83;
+
+              ESP_LOGI("psu", "========================================");
+              ESP_LOGI("psu", "Detected new Emerson R48 module:");
+              ESP_LOGI("psu", "  Heartbeat ID : 0x%08X", hb);
+              ESP_LOGI("psu", "  Response ID  : 0x%08X", response_id);
+              ESP_LOGI("psu", "  Command ID   : 0x%08X", command_id);
+              ESP_LOGI("psu", "========================================");
+              ESP_LOGI("psu", "Copy these three values into substitutions");
+
+      # PSU1 status
+      - can_id: ${psu1_response_id}
+        use_extended_id: true
+        then:
+          - lambda: |-
+              if (x.size() < 8) return;
+              union { float f; uint32_t raw; } conv;
+              conv.raw = (uint32_t(x[4]) << 24) | (uint32_t(x[5]) << 16) |
+                         (uint32_t(x[6]) << 8) | uint32_t(x[7]);
+              switch (x[3]) {
+                case 0x01: id(psu1_voltage).publish_state(conv.f); break;
+                case 0x02: id(psu1_current).publish_state(conv.f); break;
+                case 0x03: id(psu1_current_limit).publish_state(conv.f * 60.0f); break;
+                case 0x04: id(psu1_temperature).publish_state(conv.f); break;
+                case 0x05: id(psu1_input_voltage).publish_state(conv.f); break;
+                case 0x40: {
+                  uint32_t status = conv.raw;
+                  id(psu1_overtemp).publish_state(status & (1 << 6));
+                  id(psu1_fan_fail).publish_state(status & (1 << 3));
+                  id(psu1_ac_limit).publish_state(status & (1 << 1));
+                  id(psu1_fault).publish_state(status & (1 << 5));
+                  break;
+                }
+              }
+
+      # PSU2 status
+      - can_id: ${psu2_response_id}
+        use_extended_id: true
+        then:
+          - lambda: |-
+              if (x.size() < 8) return;
+              union { float f; uint32_t raw; } conv;
+              conv.raw = (uint32_t(x[4]) << 24) | (uint32_t(x[5]) << 16) |
+                         (uint32_t(x[6]) << 8) | uint32_t(x[7]);
+              switch (x[3]) {
+                case 0x01: id(psu2_voltage).publish_state(conv.f); break;
+                case 0x02: id(psu2_current).publish_state(conv.f); break;
+                case 0x03: id(psu2_current_limit).publish_state(conv.f * 60.0f); break;
+                case 0x04: id(psu2_temperature).publish_state(conv.f); break;
+                case 0x05: id(psu2_input_voltage).publish_state(conv.f); break;
+                case 0x40: {
+                  uint32_t status = conv.raw;
+                  id(psu2_overtemp).publish_state(status & (1 << 6));
+                  id(psu2_fan_fail).publish_state(status & (1 << 3));
+                  id(psu2_ac_limit).publish_state(status & (1 << 1));
+                  id(psu2_fault).publish_state(status & (1 << 5));
+                  break;
+                }
+              }
+
+      # PSU3 status
+      - can_id: ${psu3_response_id}
+        use_extended_id: true
+        then:
+          - lambda: |-
+              if (x.size() < 8) return;
+              union { float f; uint32_t raw; } conv;
+              conv.raw = (uint32_t(x[4]) << 24) | (uint32_t(x[5]) << 16) |
+                         (uint32_t(x[6]) << 8) | uint32_t(x[7]);
+              switch (x[3]) {
+                case 0x01: id(psu3_voltage).publish_state(conv.f); break;
+                case 0x02: id(psu3_current).publish_state(conv.f); break;
+                case 0x03: id(psu3_current_limit).publish_state(conv.f * 60.0f); break;
+                case 0x04: id(psu3_temperature).publish_state(conv.f); break;
+                case 0x05: id(psu3_input_voltage).publish_state(conv.f); break;
+                case 0x40: {
+                  uint32_t status = conv.raw;
+                  id(psu3_overtemp).publish_state(status & (1 << 6));
+                  id(psu3_fan_fail).publish_state(status & (1 << 3));
+                  id(psu3_ac_limit).publish_state(status & (1 << 1));
+                  id(psu3_fault).publish_state(status & (1 << 5));
+                  break;
+                }
+              }

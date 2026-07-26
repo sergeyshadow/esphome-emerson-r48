@@ -1,0 +1,90 @@
+# examples/emersonscontrol.yaml
+# Example configuration for up to 3 Emerson R48 rectifiers
+#
+# Usage:
+# 1. Flash this config
+# 2. Check logs for detected modules (Heartbeat / Response / Command IDs)
+# 3. Update the substitutions below
+# 4. Re-flash
+#
+# If you have only 2 modules — comment out all psu3 related lines
+
+substitutions:
+  # Hardware
+  can_tx_pin: GPIO5
+  can_rx_pin: GPIO4
+
+  # Module 1
+  psu1_prefix: psu1
+  psu1_name: "PSU1"
+  psu1_command_id: "0x06080783"
+  psu1_response_id: "0x060F8007"
+
+  # Module 2
+  psu2_prefix: psu2
+  psu2_name: "PSU2"
+  psu2_command_id: "0x06080F83"
+  psu2_response_id: "0x060F800F"
+
+  # Module 3 (comment out if not present)
+  psu3_prefix: psu3
+  psu3_name: "PSU3"
+  psu3_command_id: "0x06081783"
+  psu3_response_id: "0x060F8017"
+
+esphome:
+  name: emersonscontrol
+  friendly_name: EmersonsControl
+
+esp32:
+  variant: esp32c6
+  flash_size: 4MB
+  framework:
+    type: esp-idf
+
+logger:
+api:
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: EmersonsControl Fallback Hotspot
+    password: "changeme"
+
+web_server:
+  port: 80
+  version: 3
+
+captive_portal:
+
+packages:
+  can_bus: !include ../packages/can_bus.yaml
+  common: !include ../packages/common.yaml
+
+  psu1: !include
+    file: ../packages/psu.yaml
+    vars:
+      prefix: ${psu1_prefix}
+      name: ${psu1_name}
+      command_id: ${psu1_command_id}
+      response_id: ${psu1_response_id}
+
+  psu2: !include
+    file: ../packages/psu.yaml
+    vars:
+      prefix: ${psu2_prefix}
+      name: ${psu2_name}
+      command_id: ${psu2_command_id}
+      response_id: ${psu2_response_id}
+
+  # Comment this block if you have only 2 modules
+  psu3: !include
+    file: ../packages/psu.yaml
+    vars:
+      prefix: ${psu3_prefix}
+      name: ${psu3_name}
+      command_id: ${psu3_command_id}
+      response_id: ${psu3_response_id}

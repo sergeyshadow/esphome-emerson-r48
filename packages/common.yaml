@@ -1,0 +1,56 @@
+# packages/common.yaml
+# Common controls and periodic polling of Emerson R48 modules
+
+button:
+  - platform: template
+    name: "CAN Hard Reset"
+    id: can_hard_reset
+    icon: mdi:reload
+    on_press:
+      - lambda: |-
+          twai_stop();
+          twai_driver_uninstall();
+          delay(150);
+
+          twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(
+              (gpio_num_t)${can_tx_pin}, (gpio_num_t)${can_rx_pin}, TWAI_MODE_NORMAL);
+          twai_timing_config_t t_config = TWAI_TIMING_CONFIG_125KBITS();
+          twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+
+          if (twai_driver_install(&g_config, &t_config, &f_config) == ESP_OK) {
+            twai_start();
+            ESP_LOGI("can", "CAN driver fully reinstalled");
+          } else {
+            ESP_LOGE("can", "Failed to reinstall CAN driver");
+          }
+
+switch:
+  - platform: restart
+    name: "Restart"
+    id: restart_switch
+
+interval:
+  - interval: 3s
+    then:
+      # Poll PSU1
+      - canbus.send:
+          canbus_id: can_bus
+          use_extended_id: true
+          can_id: ${psu1_command_id}
+          data: [0x00, 0xF0, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00]
+      - delay: 40ms
+
+      # Poll PSU2
+      - canbus.send:
+          canbus_id: can_bus
+          use_extended_id: true
+          can_id: ${psu2_command_id}
+          data: [0x00, 0xF0, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00]
+      - delay: 40ms
+
+      # Poll PSU3
+      - canbus.send:
+          canbus_id: can_bus
+          use_extended_id: true
+          can_id: ${psu3_command_id}
+          data: [0x00, 0xF0, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00]
