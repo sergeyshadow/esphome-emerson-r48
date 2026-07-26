@@ -7,6 +7,10 @@ globals:
   - id: seen_modules
     type: std::set<uint32_t>
     restore_value: no
+  - id: last_can_ok
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
 
 canbus:
   - platform: esp32_can
@@ -23,13 +27,15 @@ canbus:
         use_extended_id: true
         then:
           - lambda: |-
+              id(last_can_ok) = millis();
+
               uint32_t hb = can_id;
               if (id(seen_modules).count(hb) > 0) return;
               id(seen_modules).insert(hb);
 
               uint8_t low = hb & 0xFF;
               uint32_t response_id = 0x060F8000 | ((low + 4) & 0xFF);
-              uint32_t command_id = 0x06080000 | (uint32_t(low + 4) << 8) | 0x83;
+              uint32_t command_id  = 0x06080000 | (uint32_t(low + 4) << 8) | 0x83;
 
               ESP_LOGI("psu", "========================================");
               ESP_LOGI("psu", "Detected new Emerson R48 module:");
@@ -44,6 +50,7 @@ canbus:
         use_extended_id: true
         then:
           - lambda: |-
+              id(last_can_ok) = millis();
               if (x.size() < 8) return;
               union { float f; uint32_t raw; } conv;
               conv.raw = (uint32_t(x[4]) << 24) | (uint32_t(x[5]) << 16) |
@@ -69,6 +76,7 @@ canbus:
         use_extended_id: true
         then:
           - lambda: |-
+              id(last_can_ok) = millis();
               if (x.size() < 8) return;
               union { float f; uint32_t raw; } conv;
               conv.raw = (uint32_t(x[4]) << 24) | (uint32_t(x[5]) << 16) |
@@ -94,6 +102,7 @@ canbus:
         use_extended_id: true
         then:
           - lambda: |-
+              id(last_can_ok) = millis();
               if (x.size() < 8) return;
               union { float f; uint32_t raw; } conv;
               conv.raw = (uint32_t(x[4]) << 24) | (uint32_t(x[5]) << 16) |

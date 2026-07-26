@@ -1,5 +1,11 @@
 # packages/common.yaml
-# Common controls and periodic polling of Emerson R48 modules
+# Common controls, polling and automatic CAN recovery
+
+globals:
+  - id: can_fail_count
+    type: int
+    restore_value: no
+    initial_value: '0'
 
 button:
   - platform: template
@@ -12,7 +18,6 @@ button:
           twai_driver_uninstall();
           delay(150);
 
-          // Hardcoded pins for ESP32-C6 (GPIO5 = TX, GPIO4 = RX)
           twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(
               GPIO_NUM_5, GPIO_NUM_4, TWAI_MODE_NORMAL);
           twai_timing_config_t t_config = TWAI_TIMING_CONFIG_125KBITS();
@@ -21,9 +26,12 @@ button:
           if (twai_driver_install(&g_config, &t_config, &f_config) == ESP_OK) {
             twai_start();
             ESP_LOGI("can", "CAN driver fully reinstalled");
+            id(last_can_ok) = millis();
+            id(can_fail_count) = 0;
           } else {
             ESP_LOGE("can", "Failed to reinstall CAN driver");
           }
+
   - platform: template
     name: "Show Detected Modules"
     id: show_detected_modules
@@ -37,7 +45,7 @@ button:
             for (uint32_t hb : id(seen_modules)) {
               uint8_t low = hb & 0xFF;
               uint32_t response_id = 0x060F8000 | ((low + 4) & 0xFF);
-              uint32_t command_id = 0x06080000 | (uint32_t(low + 4) << 8) | 0x83;
+              uint32_t command_id  = 0x06080000 | (uint32_t(low + 4) << 8) | 0x83;
 
               ESP_LOGI("psu", "Heartbeat : 0x%08X", (unsigned int)hb);
               ESP_LOGI("psu", "Response  : 0x%08X", (unsigned int)response_id);
@@ -53,27 +61,59 @@ switch:
     id: restart_switch
 
 interval:
+  # Poll all modules
   - interval: 3s
     then:
-      # Poll PSU1
       - canbus.send:
           canbus_id: can_bus
           use_extended_id: true
           can_id: ${psu1_command_id}
           data: [0x00, 0xF0, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00]
       - delay: 40ms
-
-      # Poll PSU2
       - canbus.send:
           canbus_id: can_bus
           use_extended_id: true
           can_id: ${psu2_command_id}
           data: [0x00, 0xF0, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00]
       - delay: 40ms
-
-      # Poll PSU3
       - canbus.send:
           canbus_id: can_bus
           use_extended_id: true
           can_id: ${psu3_command_id}
           data: [0x00, 0xF0, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00]
+
+  # Automatic Hard Reset if bus is silent for ~20 seconds
+  - interval: 5s
+    then:
+      - lambda: |-
+          uint32_t now = millis();
+
+          if (id(last_can_ok) != 0 && (now - id(last_can_ok) < 20000)) {
+            id(can_fail_count) = 0;
+            return;
+          }
+
+          id(can_fail_count) += 1;
+
+          if (id(can_fail_count) >= 4) {
+            ESP_LOGW("can", "No CAN activity for too long, performing Hard Reset");
+
+            twai_stop();
+            twai_driver_uninstall();
+            delay(150);
+
+            twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(
+                GPIO_NUM_5, GPIO_NUM_4, TWAI_MODE_NORMAL);
+            twai_timing_config_t t_config = TWAI_TIMING_CONFIG_125KBITS();
+            twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+
+            if (twai_driver_install(&g_config, &t_config, &f_config) == ESP_OK) {
+              twai_start();
+              ESP_LOGI("can", "CAN driver automatically reinstalled");
+            } else {
+              ESP_LOGE("can", "Failed to reinstall CAN driver");
+            }
+
+            id(can_fail_count) = 0;
+            id(last_can_ok) = millis();
+          }
