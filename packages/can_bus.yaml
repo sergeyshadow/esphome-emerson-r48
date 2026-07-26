@@ -29,7 +29,7 @@ canbus:
 
               uint8_t low = hb & 0xFF;
               uint32_t response_id = 0x060F8000 | ((low + 4) & 0xFF);
-              uint32_t command_id  = 0x06080000 | (uint32_t(low) << 8) | 0x83;
+              uint32_t command_id = 0x06080000 | (uint32_t(low + 4) << 8) | 0x83;
 
               ESP_LOGI("psu", "========================================");
               ESP_LOGI("psu", "Detected new Emerson R48 module:");
