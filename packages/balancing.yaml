@@ -1,0 +1,99 @@
+# packages/balancing.yaml
+# Phase load balancing for multiple Emerson R48 rectifiers
+#
+# Required substitutions:
+#   balance_deadband   - voltage difference deadband (V)
+#   balance_gain       - amperes per 1V difference
+#   balance_min_current
+#   balance_max_current
+#   balance_interval   - how often to run (e.g. 3s)
+
+number:
+  # Total power limit (virtual)
+  - platform: template
+    name: "Total Power Limit"
+    id: total_power_limit
+    min_value: 100
+    max_value: 9000
+    step: 50
+    unit_of_measurement: "W"
+    optimistic: true
+    restore_value: true
+    initial_value: 4000
+
+  # Master voltage for all PSUs
+  - platform: template
+    name: "All PSUs Set Voltage"
+    id: all_psu_set_voltage
+    min_value: 43.0
+    max_value: 58.0
+    step: 0.1
+    unit_of_measurement: "V"
+    optimistic: true
+    restore_value: true
+    set_action:
+      - number.set:
+          id: psu1_set_voltage
+          value: !lambda "return x;"
+      - number.set:
+          id: psu2_set_voltage
+          value: !lambda "return x;"
+      - number.set:
+          id: psu3_set_voltage
+          value: !lambda "return x;"
+
+interval:
+  - interval: ${balance_interval}
+    then:
+      - lambda: |-
+          // Safety checks
+          if (!id(psu1_input_voltage).has_state() ||
+              !id(psu2_input_voltage).has_state() ||
+              !id(psu3_input_voltage).has_state()) return;
+
+          float vin1 = id(psu1_input_voltage).state;
+          float vin2 = id(psu2_input_voltage).state;
+          float vin3 = id(psu3_input_voltage).state;
+
+          float vout1 = id(psu1_voltage).has_state() ? id(psu1_voltage).state : 53.0f;
+          float vout2 = id(psu2_voltage).has_state() ? id(psu2_voltage).state : 53.0f;
+          float vout3 = id(psu3_voltage).has_state() ? id(psu3_voltage).state : 53.0f;
+
+          float avg_vin = (vin1 + vin2 + vin3) / 3.0f;
+
+          // Current offsets based on input voltage difference
+          float deadband = ${balance_deadband};
+          float gain     = ${balance_gain};
+
+          float offset1 = 0.0f, offset2 = 0.0f, offset3 = 0.0f;
+
+          if (fabsf(vin1 - avg_vin) > deadband)
+            offset1 = (vin1 - avg_vin) * gain;
+          if (fabsf(vin2 - avg_vin) > deadband)
+            offset2 = (vin2 - avg_vin) * gain;
+          if (fabsf(vin3 - avg_vin) > deadband)
+            offset3 = (vin3 - avg_vin) * gain;
+
+          // Base current from total power limit
+          float total_limit_w = id(total_power_limit).state;
+          float avg_vout = (vout1 + vout2 + vout3) / 3.0f;
+          if (avg_vout < 40.0f) avg_vout = 53.0f;
+
+          float base_current = (total_limit_w / avg_vout) / 3.0f;
+
+          float i1 = base_current + offset1;
+          float i2 = base_current + offset2;
+          float i3 = base_current + offset3;
+
+          // Clamp
+          float min_i = ${balance_min_current};
+          float max_i = ${balance_max_current};
+
+          i1 = clamp(i1, min_i, max_i);
+          i2 = clamp(i2, min_i, max_i);
+          i3 = clamp(i3, min_i, max_i);
+
+          // Apply
+          id(psu1_set_current_limit).make_call().set_value(i1).perform();
+          id(psu2_set_current_limit).make_call().set_value(i2).perform();
+          id(psu3_set_current_limit).make_call().set_value(i3).perform();

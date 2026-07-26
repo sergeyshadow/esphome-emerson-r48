@@ -176,3 +176,14 @@ switch:
       - lambda: |-
           uint8_t data[8] = {0x03, 0xF0, 0x00, 0x30, 0x00, 0x00, 0x00, 0x01};
           id(can_bus).send_data(${command_id}, true, false, std::vector<uint8_t>(data, data + 8));
+  - platform: template
+    name: "${name} Load %"
+    id: ${prefix}_load_percent
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    update_interval: 3s
+    lambda: |-
+      if (id(${prefix}_current).has_state() && id(${prefix}_current_limit).has_state() &&
+          id(${prefix}_current_limit).state > 0.5)
+        return id(${prefix}_current).state / id(${prefix}_current_limit).state * 100.0f;
+      return 0.0f;

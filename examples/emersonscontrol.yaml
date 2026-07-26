@@ -6,8 +6,6 @@
 # 2. Check logs for detected modules (Heartbeat / Response / Command IDs)
 # 3. Update the substitutions below
 # 4. Re-flash
-#
-# If you have only 2 modules — comment out all psu3 related lines
 
 substitutions:
   # Hardware
@@ -26,11 +24,18 @@ substitutions:
   psu2_command_id: "0x06080F83"
   psu2_response_id: "0x060F800F"
 
-  # Module 3 (comment out if not present)
+  # Module 3
   psu3_prefix: psu3
   psu3_name: "PSU3"
   psu3_command_id: "0x06081783"
   psu3_response_id: "0x060F8017"
+
+  # Balancing parameters
+  balance_deadband: "2.0"          # V
+  balance_gain: "1.5"              # A per 1V difference
+  balance_min_current: "2.0"       # A
+  balance_max_current: "55.0"      # A
+  balance_interval: "3s"
 
 esphome:
   name: emersonscontrol
@@ -63,6 +68,7 @@ captive_portal:
 packages:
   can_bus: !include ../packages/can_bus.yaml
   common: !include ../packages/common.yaml
+  balancing: !include ../packages/balancing.yaml
 
   psu1: !include
     file: ../packages/psu.yaml
@@ -80,7 +86,6 @@ packages:
       command_id: ${psu2_command_id}
       response_id: ${psu2_response_id}
 
-  # Comment this block if you have only 2 modules
   psu3: !include
     file: ../packages/psu.yaml
     vars:
