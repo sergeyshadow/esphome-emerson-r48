@@ -33,9 +33,9 @@ canbus:
 
               ESP_LOGI("psu", "========================================");
               ESP_LOGI("psu", "Detected new Emerson R48 module:");
-              ESP_LOGI("psu", "  Heartbeat ID : 0x%08X", hb);
-              ESP_LOGI("psu", "  Response ID  : 0x%08X", response_id);
-              ESP_LOGI("psu", "  Command ID   : 0x%08X", command_id);
+              ESP_LOGI("psu", "  Heartbeat ID : 0x%08X", (unsigned int)hb);
+              ESP_LOGI("psu", "  Response ID  : 0x%08X", (unsigned int)response_id);
+              ESP_LOGI("psu", "  Command ID   : 0x%08X", (unsigned int)command_id);
               ESP_LOGI("psu", "========================================");
               ESP_LOGI("psu", "Copy these three values into substitutions");
 

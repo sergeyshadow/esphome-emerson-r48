@@ -12,8 +12,9 @@ button:
           twai_driver_uninstall();
           delay(150);
 
+          // Hardcoded pins for ESP32-C6 (GPIO5 = TX, GPIO4 = RX)
           twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(
-              (gpio_num_t)${can_tx_pin}, (gpio_num_t)${can_rx_pin}, TWAI_MODE_NORMAL);
+              GPIO_NUM_5, GPIO_NUM_4, TWAI_MODE_NORMAL);
           twai_timing_config_t t_config = TWAI_TIMING_CONFIG_125KBITS();
           twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
