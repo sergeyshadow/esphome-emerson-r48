@@ -24,6 +24,28 @@ button:
           } else {
             ESP_LOGE("can", "Failed to reinstall CAN driver");
           }
+  - platform: template
+    name: "Show Detected Modules"
+    id: show_detected_modules
+    icon: mdi:information-outline
+    on_press:
+      - lambda: |-
+          ESP_LOGI("psu", "========== Currently known modules ==========");
+          if (id(seen_modules).empty()) {
+            ESP_LOGW("psu", "No modules detected yet");
+          } else {
+            for (uint32_t hb : id(seen_modules)) {
+              uint8_t low = hb & 0xFF;
+              uint32_t response_id = 0x060F8000 | ((low + 4) & 0xFF);
+              uint32_t command_id  = 0x06080000 | (uint32_t(low) << 8) | 0x83;
+
+              ESP_LOGI("psu", "Heartbeat : 0x%08X", (unsigned int)hb);
+              ESP_LOGI("psu", "Response  : 0x%08X", (unsigned int)response_id);
+              ESP_LOGI("psu", "Command   : 0x%08X", (unsigned int)command_id);
+              ESP_LOGI("psu", "-------------------------------------------");
+            }
+          }
+          ESP_LOGI("psu", "=============================================");
 
 switch:
   - platform: restart
