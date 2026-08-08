@@ -1,11 +1,11 @@
 # examples/emersonscontrol.yaml
-# Example configuration for up to 3 Emerson R48 rectifiers
+# Ready-to-use example for up to 3 Emerson R48 rectifiers
 #
 # Usage:
-# 1. Flash this config
-# 2. Check logs for detected modules (Heartbeat / Response / Command IDs)
-# 3. Update the substitutions below
-# 4. Re-flash
+# 1. Copy this file into your ESPHome config
+# 2. Adjust substitutions (pins + module IDs)
+# 3. Flash once → open logs → press "Show Detected Modules"
+# 4. Put the printed IDs into substitutions and re-flash
 
 substitutions:
   # Hardware
@@ -31,10 +31,10 @@ substitutions:
   psu3_response_id: "0x060F8017"
 
   # Balancing parameters
-  balance_deadband: "2.0"          # V
-  balance_gain: "1.5"              # A per 1V difference
-  balance_min_current: "2.0"       # A
-  balance_max_current: "55.0"      # A
+  balance_deadband: "2.0"
+  balance_gain: "1.5"
+  balance_min_current: "2.0"
+  balance_max_current: "55.0"
   balance_interval: "3s"
 
 esphome:
@@ -42,13 +42,14 @@ esphome:
   friendly_name: EmersonsControl
 
 esp32:
-  variant: esp32c6
-  flash_size: 4MB
+  board: esp32-c6-devkitc-1   # change if needed
   framework:
     type: esp-idf
 
 logger:
+
 api:
+
 ota:
   - platform: esphome
 
@@ -66,30 +67,56 @@ web_server:
 captive_portal:
 
 packages:
-  can_bus: !include ../packages/can_bus.yaml
-  common: !include ../packages/common.yaml
-  balancing: !include ../packages/balancing.yaml
+  can_bus:
+    url: https://github.com/sergeyshadow/esphome-emerson-r48
+    ref: main
+    files: [packages/can_bus.yaml]
+    refresh: 0s
 
-  psu1: !include
-    file: ../packages/psu.yaml
-    vars:
-      prefix: ${psu1_prefix}
-      name: ${psu1_name}
-      command_id: ${psu1_command_id}
-      response_id: ${psu1_response_id}
+  common:
+    url: https://github.com/sergeyshadow/esphome-emerson-r48
+    ref: main
+    files: [packages/common.yaml]
+    refresh: 0s
 
-  psu2: !include
-    file: ../packages/psu.yaml
-    vars:
-      prefix: ${psu2_prefix}
-      name: ${psu2_name}
-      command_id: ${psu2_command_id}
-      response_id: ${psu2_response_id}
+  balancing:
+    url: https://github.com/sergeyshadow/esphome-emerson-r48
+    ref: main
+    files: [packages/balancing.yaml]
+    refresh: 0s
 
-  psu3: !include
-    file: ../packages/psu.yaml
-    vars:
-      prefix: ${psu3_prefix}
-      name: ${psu3_name}
-      command_id: ${psu3_command_id}
-      response_id: ${psu3_response_id}
+  psu1:
+    url: https://github.com/sergeyshadow/esphome-emerson-r48
+    ref: main
+    files:
+      - path: packages/psu.yaml
+        vars:
+          prefix: ${psu1_prefix}
+          name: ${psu1_name}
+          command_id: ${psu1_command_id}
+          response_id: ${psu1_response_id}
+    refresh: 0s
+
+  psu2:
+    url: https://github.com/sergeyshadow/esphome-emerson-r48
+    ref: main
+    files:
+      - path: packages/psu.yaml
+        vars:
+          prefix: ${psu2_prefix}
+          name: ${psu2_name}
+          command_id: ${psu2_command_id}
+          response_id: ${psu2_response_id}
+    refresh: 0s
+
+  psu3:
+    url: https://github.com/sergeyshadow/esphome-emerson-r48
+    ref: main
+    files:
+      - path: packages/psu.yaml
+        vars:
+          prefix: ${psu3_prefix}
+          name: ${psu3_name}
+          command_id: ${psu3_command_id}
+          response_id: ${psu3_response_id}
+    refresh: 0s
