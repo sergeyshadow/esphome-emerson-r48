@@ -1,5 +1,9 @@
 # packages/common.yaml
 # Common controls, polling and automatic CAN recovery
+#
+# Required substitutions:
+#   can_tx_pin, can_rx_pin  — numeric GPIO (e.g. "6", "10")
+#   psu1_command_id, psu2_command_id, psu3_command_id
 
 globals:
   - id: can_fail_count
@@ -19,7 +23,7 @@ button:
           delay(150);
 
           twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(
-              GPIO_NUM_5, GPIO_NUM_4, TWAI_MODE_NORMAL);
+              (gpio_num_t)${can_tx_pin}, (gpio_num_t)${can_rx_pin}, TWAI_MODE_NORMAL);
           twai_timing_config_t t_config = TWAI_TIMING_CONFIG_125KBITS();
           twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
@@ -61,7 +65,6 @@ switch:
     id: restart_switch
 
 interval:
-  # Poll all modules
   - interval: 3s
     then:
       - canbus.send:
@@ -82,7 +85,6 @@ interval:
           can_id: ${psu3_command_id}
           data: [0x00, 0xF0, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00]
 
-  # Automatic Hard Reset if bus is silent for ~20 seconds
   - interval: 5s
     then:
       - lambda: |-
@@ -103,7 +105,7 @@ interval:
             delay(150);
 
             twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(
-                GPIO_NUM_5, GPIO_NUM_4, TWAI_MODE_NORMAL);
+                (gpio_num_t)${can_tx_pin}, (gpio_num_t)${can_rx_pin}, TWAI_MODE_NORMAL);
             twai_timing_config_t t_config = TWAI_TIMING_CONFIG_125KBITS();
             twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 

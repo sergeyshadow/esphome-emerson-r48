@@ -3,14 +3,14 @@
 #
 # Usage:
 # 1. Copy this file into your ESPHome config
-# 2. Adjust substitutions (pins + module IDs)
+# 2. Adjust substitutions (pins as numbers + module IDs)
 # 3. Flash once → open logs → press "Show Detected Modules"
 # 4. Put the printed IDs into substitutions and re-flash
 
 substitutions:
-  # Hardware
-  can_tx_pin: GPIO5
-  can_rx_pin: GPIO4
+  # Hardware — numeric GPIO only (required for TWAI Hard Reset)
+  can_tx_pin: "6"
+  can_rx_pin: "10"
 
   # Module 1
   psu1_prefix: psu1
@@ -42,7 +42,8 @@ esphome:
   friendly_name: EmersonsControl
 
 esp32:
-  board: esp32-c6-devkitc-1   # change if needed
+  variant: esp32c6
+  flash_size: 4MB
   framework:
     type: esp-idf
 

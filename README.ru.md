@@ -48,18 +48,20 @@ ESP + 120Ω ────── БП1 ────── БП2 ──────
 ## Быстрый старт
 
 1. Возьмите пример из `examples/emersonscontrol.yaml` или подключите пакеты удалённо из этого репозитория.
-2. Укажите пины CAN в substitutions (`can_tx_pin`, `can_rx_pin`).
-3. Прошейте устройство один раз и откройте логи.
-4. Нажмите кнопку **Show Detected Modules**.
-5. Скопируйте появившиеся Heartbeat / Response / Command ID в substitutions.
-6. Перепрошейте.
+2. Укажите пины CAN в substitutions (`can_tx_pin`, `can_rx_pin`) **только числами** (не `GPIO6`).
+3. Лучше не использовать strapping-пины (на ESP32-C6 по возможности избегайте GPIO4/GPIO5).
+4. Прошейте устройство один раз и откройте логи.
+5. Нажмите кнопку **Show Detected Modules**.
+6. Скопируйте появившиеся Heartbeat / Response / Command ID в substitutions.
+7. Перепрошейте.
 
 Пример substitutions:
 
 ```yaml
 substitutions:
-  can_tx_pin: GPIO5
-  can_rx_pin: GPIO4
+  # Только номер GPIO (нужно для CAN Hard Reset / TWAI reinstall)
+  can_tx_pin: "6"
+  can_rx_pin: "10"
 
   psu1_command_id: "0x06080783"
   psu1_response_id: "0x060F8007"
@@ -103,6 +105,7 @@ substitutions:
 Проект стал возможен благодаря работе многих людей в сообществе:
 
 - Авторам и участникам реверс-инжиниринга CAN-протокола Emerson/Vertiv R48 (сообщества Endless Sphere и другие DIY power electronics группы)
+- [syssi/esphome-jk-bms](https://github.com/syssi/esphome-jk-bms) — отличный пример чистой пакетной архитектуры для нескольких устройств в ESPHome
 - Проекту ESPHome и его контрибьюторам
 
 ## Отказ от ответственности

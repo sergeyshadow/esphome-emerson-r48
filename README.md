@@ -48,18 +48,20 @@ Avoid star topology. Measure resistance between CANH and CANL (power off):
 ## Quick Start
 
 1. Use the example from `examples/emersonscontrol.yaml` or connect packages remotely from this repository.
-2. Set your CAN pins in substitutions (`can_tx_pin`, `can_rx_pin`).
-3. Flash the device once and open the logs.
-4. Press the **Show Detected Modules** button.
-5. Copy the printed Heartbeat / Response / Command IDs into substitutions.
-6. Re-flash.
+2. Set your CAN pins in substitutions (`can_tx_pin`, `can_rx_pin`) as **numbers only** (not `GPIO6`).
+3. Prefer non-strapping pins (on ESP32-C6 avoid GPIO4/GPIO5 when possible).
+4. Flash the device once and open the logs.
+5. Press the **Show Detected Modules** button.
+6. Copy the printed Heartbeat / Response / Command IDs into substitutions.
+7. Re-flash.
 
 Example substitutions:
 
 ```yaml
 substitutions:
-  can_tx_pin: GPIO5
-  can_rx_pin: GPIO4
+  # Numeric GPIO only (required for CAN Hard Reset / TWAI reinstall)
+  can_tx_pin: "6"
+  can_rx_pin: "10"
 
   psu1_command_id: "0x06080783"
   psu1_response_id: "0x060F8007"
@@ -103,6 +105,7 @@ You can also set:
 This project was made possible thanks to the work of many people in the community:
 
 - Authors and contributors of various Emerson/Vertiv R48 CAN protocol reverse-engineering efforts (Endless Sphere and other DIY power electronics communities)
+- [syssi/esphome-jk-bms](https://github.com/syssi/esphome-jk-bms) — excellent example of clean multi-device ESPHome package design
 - ESPHome project and its contributors
 
 ## Disclaimer
