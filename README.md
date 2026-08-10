@@ -21,7 +21,17 @@ ESPHome configuration for controlling multiple Emerson/Vertiv R48 series rectifi
 
 - Any ESP32 (ESP32, ESP32-C3, ESP32-C6, ESP32-S3, etc.)
 - SN65HVD230 (or compatible) CAN transceiver
-- 1–3 Emerson/Vertiv R48 rectifiers
+- 1–3 Emerson/Vertiv R48 rectifiers (e.g. R48-2900U)
+
+<p align="center">
+  <img src="docs/images/esp32-c6.jpg" alt="ESP32-C6" width="220"/>
+  <img src="docs/images/sn65hvd230.jpg" alt="SN65HVD230 CAN transceiver" width="220"/>
+  <img src="docs/images/emerson-r48-2900u.jpg" alt="Emerson R48-2900U" width="220"/>
+</p>
+
+<p align="center">
+  <em>ESP32-C6 · SN65HVD230 · Emerson R48-2900U</em>
+</p>
 
 ### Wiring
 
