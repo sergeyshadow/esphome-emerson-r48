@@ -1,12 +1,9 @@
 # packages/balancing.yaml
-# Phase load balancing for multiple Emerson R48 rectifiers
+# Phase load balancing for 1–3 active Emerson R48 modules
 #
-# Required substitutions:
-#   balance_deadband
-#   balance_gain
-#   balance_min_current
-#   balance_max_current
-#   balance_interval
+# A module is active when:
+#   - status received within last 15 seconds
+#   - Output Enable is ON
 
 number:
   - platform: template
@@ -56,49 +53,70 @@ interval:
             switch.is_on: balancing_enable
           then:
             - lambda: |-
-                if (!id(psu1_input_voltage).has_state() ||
-                    !id(psu2_input_voltage).has_state() ||
-                    !id(psu3_input_voltage).has_state()) return;
+                const uint32_t now = millis();
+                const uint32_t stale_ms = 15000;  // 15 seconds
 
-                float vin1 = id(psu1_input_voltage).state;
-                float vin2 = id(psu2_input_voltage).state;
-                float vin3 = id(psu3_input_voltage).state;
+                bool a1 = (id(last_ok_psu1) != 0) && (now - id(last_ok_psu1) < stale_ms)
+                          && id(psu1_output_enable).state
+                          && id(psu1_input_voltage).has_state();
+                bool a2 = (id(last_ok_psu2) != 0) && (now - id(last_ok_psu2) < stale_ms)
+                          && id(psu2_output_enable).state
+                          && id(psu2_input_voltage).has_state();
+                bool a3 = (id(last_ok_psu3) != 0) && (now - id(last_ok_psu3) < stale_ms)
+                          && id(psu3_output_enable).state
+                          && id(psu3_input_voltage).has_state();
 
-                float vout1 = id(psu1_voltage).has_state() ? id(psu1_voltage).state : 53.0f;
-                float vout2 = id(psu2_voltage).has_state() ? id(psu2_voltage).state : 53.0f;
-                float vout3 = id(psu3_voltage).has_state() ? id(psu3_voltage).state : 53.0f;
+                int n = (a1 ? 1 : 0) + (a2 ? 1 : 0) + (a3 ? 1 : 0);
+                if (n == 0) {
+                  ESP_LOGD("balance", "No active modules, skip");
+                  return;
+                }
 
-                float avg_vin = (vin1 + vin2 + vin3) / 3.0f;
+                float vin1 = a1 ? id(psu1_input_voltage).state : 0.0f;
+                float vin2 = a2 ? id(psu2_input_voltage).state : 0.0f;
+                float vin3 = a3 ? id(psu3_input_voltage).state : 0.0f;
+
+                float vout1 = (a1 && id(psu1_voltage).has_state()) ? id(psu1_voltage).state : 53.0f;
+                float vout2 = (a2 && id(psu2_voltage).has_state()) ? id(psu2_voltage).state : 53.0f;
+                float vout3 = (a3 && id(psu3_voltage).has_state()) ? id(psu3_voltage).state : 53.0f;
+
+                float sum_vin = 0.0f, sum_vout = 0.0f;
+                if (a1) { sum_vin += vin1; sum_vout += vout1; }
+                if (a2) { sum_vin += vin2; sum_vout += vout2; }
+                if (a3) { sum_vin += vin3; sum_vout += vout3; }
+
+                float avg_vin  = sum_vin / n;
+                float avg_vout = sum_vout / n;
+                if (avg_vout < 40.0f) avg_vout = 53.0f;
 
                 float deadband = ${balance_deadband};
                 float gain     = ${balance_gain};
+                float min_i    = ${balance_min_current};
+                float max_i    = ${balance_max_current};
 
-                float offset1 = 0.0f, offset2 = 0.0f, offset3 = 0.0f;
+                float base = id(total_power_limit).state / avg_vout / n;
 
-                if (fabsf(vin1 - avg_vin) > deadband)
-                  offset1 = (vin1 - avg_vin) * gain;
-                if (fabsf(vin2 - avg_vin) > deadband)
-                  offset2 = (vin2 - avg_vin) * gain;
-                if (fabsf(vin3 - avg_vin) > deadband)
-                  offset3 = (vin3 - avg_vin) * gain;
+                auto calc = [&](bool active, float vin) -> float {
+                  if (!active) return -1.0f;
+                  float offset = 0.0f;
+                  if (n > 1 && fabsf(vin - avg_vin) > deadband)
+                    offset = (vin - avg_vin) * gain;
+                  float i = base + offset;
+                  if (i < min_i) i = min_i;
+                  if (i > max_i) i = max_i;
+                  return i;
+                };
 
-                float total_limit_w = id(total_power_limit).state;
-                float avg_vout = (vout1 + vout2 + vout3) / 3.0f;
-                if (avg_vout < 40.0f) avg_vout = 53.0f;
+                float i1 = calc(a1, vin1);
+                float i2 = calc(a2, vin2);
+                float i3 = calc(a3, vin3);
 
-                float base_current = (total_limit_w / avg_vout) / 3.0f;
+                ESP_LOGD("balance", "active=%d base=%.2f I1=%.2f I2=%.2f I3=%.2f",
+                         n, base, i1, i2, i3);
 
-                float i1 = base_current + offset1;
-                float i2 = base_current + offset2;
-                float i3 = base_current + offset3;
-
-                float min_i = ${balance_min_current};
-                float max_i = ${balance_max_current};
-
-                i1 = clamp(i1, min_i, max_i);
-                i2 = clamp(i2, min_i, max_i);
-                i3 = clamp(i3, min_i, max_i);
-
-                id(psu1_set_current_limit).make_call().set_value(i1).perform();
-                id(psu2_set_current_limit).make_call().set_value(i2).perform();
-                id(psu3_set_current_limit).make_call().set_value(i3).perform();
+                if (i1 >= 0.0f)
+                  id(psu1_set_current_limit).make_call().set_value(i1).perform();
+                if (i2 >= 0.0f)
+                  id(psu2_set_current_limit).make_call().set_value(i2).perform();
+                if (i3 >= 0.0f)
+                  id(psu3_set_current_limit).make_call().set_value(i3).perform();

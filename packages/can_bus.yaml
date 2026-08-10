@@ -1,13 +1,23 @@
 # packages/can_bus.yaml
 # CAN bus setup + automatic detection of Emerson R48 modules
-# Required substitutions: can_tx_pin, can_rx_pin
-# Also expects psu1/2/3_response_id
 
 globals:
   - id: seen_modules
     type: std::set<uint32_t>
     restore_value: no
   - id: last_can_ok
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+  - id: last_ok_psu1
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+  - id: last_ok_psu2
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+  - id: last_ok_psu3
     type: uint32_t
     restore_value: no
     initial_value: '0'
@@ -51,6 +61,7 @@ canbus:
         then:
           - lambda: |-
               id(last_can_ok) = millis();
+              id(last_ok_psu1) = millis();
               if (x.size() < 8) return;
               union { float f; uint32_t raw; } conv;
               conv.raw = (uint32_t(x[4]) << 24) | (uint32_t(x[5]) << 16) |
@@ -77,6 +88,7 @@ canbus:
         then:
           - lambda: |-
               id(last_can_ok) = millis();
+              id(last_ok_psu2) = millis();
               if (x.size() < 8) return;
               union { float f; uint32_t raw; } conv;
               conv.raw = (uint32_t(x[4]) << 24) | (uint32_t(x[5]) << 16) |
@@ -103,6 +115,7 @@ canbus:
         then:
           - lambda: |-
               id(last_can_ok) = millis();
+              id(last_ok_psu3) = millis();
               if (x.size() < 8) return;
               union { float f; uint32_t raw; } conv;
               conv.raw = (uint32_t(x[4]) << 24) | (uint32_t(x[5]) << 16) |
