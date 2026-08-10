@@ -178,7 +178,7 @@ switch:
     name: "${name} Output Enable"
     id: ${prefix}_output_enable
     optimistic: true
-    restore_mode: ALWAYS_OFF
+    restore_mode: RESTORE_DEFAULT_OFF
     turn_on_action:
       - lambda: |-
           uint8_t data[8] = {0x03, 0xF0, 0x00, 0x30, 0x00, 0x00, 0x00, 0x00};
