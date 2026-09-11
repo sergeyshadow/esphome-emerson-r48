@@ -27,6 +27,7 @@
   <img src="docs/images/esp32-c6.jpg" alt="ESP32-C6" width="220"/>
   <img src="docs/images/sn65hvd230.jpg" alt="SN65HVD230 CAN transceiver" width="220"/>
   <img src="docs/images/emerson-r48-2900u.jpg" alt="Emerson R48-2900U" width="220"/>
+  <img src="docs/images/connectors.jpeg" alt="Emerson R48-2900U" width="220"/>
 </p>
 
 <p align="center">
