@@ -66,9 +66,8 @@ sensor:
     accuracy_decimals: 0
     update_interval: 3s
     lambda: |-
-      if (id(${prefix}_current).has_state() && id(${prefix}_current_limit).has_state() &&
-          id(${prefix}_current_limit).state > 0.5)
-        return id(${prefix}_current).state / id(${prefix}_current_limit).state * 100.0f;
+      if (id(${prefix}_current).has_state())
+        return id(${prefix}_current).state / 60.0f * 100.0f;
       return 0.0f;
 
   - platform: template
