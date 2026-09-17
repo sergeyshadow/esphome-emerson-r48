@@ -31,10 +31,13 @@ substitutions:
   psu3_response_id: "0x060F8017"
 
   # Balancing parameters
-  balance_deadband: "2.0"
-  balance_gain: "1.5"
+  balance_deadband: "2.0"        # V, ignore smaller Vin difference
+  balance_gain: "1.5"            # A per 1 V of weak-phase sag
+  balance_share_gain: "0.35"     # pull toward equal measured current
   balance_min_current: "2.0"
   balance_max_current: "55.0"
+  balance_step: "2.5"            # max amps changed per cycle
+  balance_send_delta: "0.5"      # skip CAN write if change is smaller
   balance_interval: "3s"
 
 esphome:
