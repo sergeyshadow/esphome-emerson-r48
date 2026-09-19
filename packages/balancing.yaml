@@ -1,17 +1,7 @@
 # packages/balancing.yaml
-# Phase + power-share balancing for 1–3 active Emerson R48 modules
-#
-# A module is active when:
-#   - status received within last 25 seconds
-#   - Output Enable is ON
-#   - input voltage is known
-#
-# Each cycle:
-#   1. Split Total Power Limit equally between active modules
-#   2. Nudge limits toward equal actual output current
-#   3. Only cut a module whose AC voltage is below average (deadband)
-#   4. Change at most balance_step amps per cycle
-#   5. Send a CAN setpoint only if it changed by >= balance_send_delta
+# Split real DC load by AC voltage: weak phases are clamped,
+# the strong phase gets headroom. If a module hits max current,
+# leftover amps go to the others in proportion to Vin.
 
 number:
   - platform: template
@@ -64,87 +54,136 @@ interval:
                 const uint32_t now = millis();
                 const uint32_t stale_ms = 25000;
 
-                bool a1 = (id(last_ok_psu1) != 0) && (now - id(last_ok_psu1) < stale_ms)
-                          && id(psu1_output_enable).state
-                          && id(psu1_input_voltage).has_state();
-                bool a2 = (id(last_ok_psu2) != 0) && (now - id(last_ok_psu2) < stale_ms)
-                          && id(psu2_output_enable).state
-                          && id(psu2_input_voltage).has_state();
-                bool a3 = (id(last_ok_psu3) != 0) && (now - id(last_ok_psu3) < stale_ms)
-                          && id(psu3_output_enable).state
-                          && id(psu3_input_voltage).has_state();
+                bool a[3];
+                a[0] = (id(last_ok_psu1) != 0) && (now - id(last_ok_psu1) < stale_ms)
+                       && id(psu1_output_enable).state
+                       && id(psu1_input_voltage).has_state();
+                a[1] = (id(last_ok_psu2) != 0) && (now - id(last_ok_psu2) < stale_ms)
+                       && id(psu2_output_enable).state
+                       && id(psu2_input_voltage).has_state();
+                a[2] = (id(last_ok_psu3) != 0) && (now - id(last_ok_psu3) < stale_ms)
+                       && id(psu3_output_enable).state
+                       && id(psu3_input_voltage).has_state();
 
-                int n = (a1 ? 1 : 0) + (a2 ? 1 : 0) + (a3 ? 1 : 0);
+                int n = (a[0] ? 1 : 0) + (a[1] ? 1 : 0) + (a[2] ? 1 : 0);
                 if (n == 0) {
                   ESP_LOGD("balance", "No active modules, skip");
                   return;
                 }
 
-                float vin1 = a1 ? id(psu1_input_voltage).state : 0.0f;
-                float vin2 = a2 ? id(psu2_input_voltage).state : 0.0f;
-                float vin3 = a3 ? id(psu3_input_voltage).state : 0.0f;
-
-                float vout1 = (a1 && id(psu1_voltage).has_state()) ? id(psu1_voltage).state : 53.0f;
-                float vout2 = (a2 && id(psu2_voltage).has_state()) ? id(psu2_voltage).state : 53.0f;
-                float vout3 = (a3 && id(psu3_voltage).has_state()) ? id(psu3_voltage).state : 53.0f;
-
-                float iact1 = (a1 && id(psu1_current).has_state()) ? id(psu1_current).state : 0.0f;
-                float iact2 = (a2 && id(psu2_current).has_state()) ? id(psu2_current).state : 0.0f;
-                float iact3 = (a3 && id(psu3_current).has_state()) ? id(psu3_current).state : 0.0f;
-
-                float sum_vin = 0.0f, sum_vout = 0.0f, sum_iact = 0.0f;
-                if (a1) { sum_vin += vin1; sum_vout += vout1; sum_iact += iact1; }
-                if (a2) { sum_vin += vin2; sum_vout += vout2; sum_iact += iact2; }
-                if (a3) { sum_vin += vin3; sum_vout += vout3; sum_iact += iact3; }
-
-                float avg_vin  = sum_vin / n;
-                float avg_vout = sum_vout / n;
-                if (avg_vout < 40.0f) avg_vout = 53.0f;
-                float equal_i = sum_iact / n;
-
-                float deadband   = ${balance_deadband};
-                float phase_gain = ${balance_gain};
-                float share_gain = ${balance_share_gain};
-                float min_i      = ${balance_min_current};
-                float max_i      = ${balance_max_current};
-                float step       = ${balance_step};
-                float send_delta = ${balance_send_delta};
-
-                float base = id(total_power_limit).state / avg_vout / n;
-                float min_dyn = min_i;
-                if (base > 10.0f)
-                  min_dyn = fmaxf(min_i, base * 0.25f);
-
-                auto next_limit = [&](bool active, float vin, float iact, float cur_set) -> float {
-                  if (!active) return -1.0f;
-                  float target = base;
-                  if (n > 1 && (avg_vin - vin) > deadband)
-                    target -= (avg_vin - vin) * phase_gain;
-                  if (n > 1)
-                    target += (equal_i - iact) * share_gain;
-                  if (target < min_dyn) target = min_dyn;
-                  if (target > max_i) target = max_i;
-                  float delta = target - cur_set;
-                  if (delta > step) delta = step;
-                  if (delta < -step) delta = -step;
-                  return cur_set + delta;
+                float vin[3] = {
+                  a[0] ? id(psu1_input_voltage).state : 0.0f,
+                  a[1] ? id(psu2_input_voltage).state : 0.0f,
+                  a[2] ? id(psu3_input_voltage).state : 0.0f
+                };
+                float vout[3] = {
+                  (a[0] && id(psu1_voltage).has_state()) ? id(psu1_voltage).state : 53.0f,
+                  (a[1] && id(psu2_voltage).has_state()) ? id(psu2_voltage).state : 53.0f,
+                  (a[2] && id(psu3_voltage).has_state()) ? id(psu3_voltage).state : 53.0f
+                };
+                float iact[3] = {
+                  (a[0] && id(psu1_current).has_state()) ? id(psu1_current).state : 0.0f,
+                  (a[1] && id(psu2_current).has_state()) ? id(psu2_current).state : 0.0f,
+                  (a[2] && id(psu3_current).has_state()) ? id(psu3_current).state : 0.0f
                 };
 
-                float cur1 = id(psu1_set_current_limit).has_state() ? id(psu1_set_current_limit).state : base;
-                float cur2 = id(psu2_set_current_limit).has_state() ? id(psu2_set_current_limit).state : base;
-                float cur3 = id(psu3_set_current_limit).has_state() ? id(psu3_set_current_limit).state : base;
+                float sum_vin = 0.0f, sum_iact = 0.0f, sum_p = 0.0f;
+                for (int i = 0; i < 3; i++) {
+                  if (!a[i]) continue;
+                  if (vout[i] < 40.0f) vout[i] = 53.0f;
+                  sum_vin += vin[i];
+                  sum_iact += iact[i];
+                  sum_p += vout[i] * iact[i];
+                }
+                if (sum_vin < 1.0f) return;
 
-                float i1 = next_limit(a1, vin1, iact1, cur1);
-                float i2 = next_limit(a2, vin2, iact2, cur2);
-                float i3 = next_limit(a3, vin3, iact3, cur3);
+                float avg_vin = sum_vin / n;
+                float eq = sum_iact / n;
 
-                if (i1 >= 0.0f && fabsf(i1 - cur1) >= send_delta)
-                  id(psu1_set_current_limit).make_call().set_value(i1).perform();
-                if (i2 >= 0.0f && fabsf(i2 - cur2) >= send_delta)
-                  id(psu2_set_current_limit).make_call().set_value(i2).perform();
-                if (i3 >= 0.0f && fabsf(i3 - cur3) >= send_delta)
-                  id(psu3_set_current_limit).make_call().set_value(i3).perform();
+                float deadband = ${balance_deadband};
+                float gain     = ${balance_gain};
+                float min_i    = ${balance_min_current};
+                float max_i    = ${balance_max_current};
+                float step     = ${balance_step};
+                float send_d   = ${balance_send_delta};
+                const float headroom = 1.5f;
+
+                float t[3] = {-1.0f, -1.0f, -1.0f};
+                bool sat[3] = {false, false, false};
+
+                for (int i = 0; i < 3; i++) {
+                  if (!a[i]) continue;
+                  float adj = 0.0f;
+                  if (n > 1 && fabsf(vin[i] - avg_vin) > deadband)
+                    adj = (vin[i] - avg_vin) * gain;
+                  t[i] = eq + adj;
+                  if (vin[i] + 0.01f >= avg_vin)
+                    t[i] += headroom;
+                  if (t[i] < min_i) t[i] = min_i;
+                  if (t[i] > max_i) {
+                    t[i] = max_i;
+                    sat[i] = true;
+                  }
+                }
+
+                // If a module is at max current, give leftover to the others by Vin
+                for (int pass = 0; pass < 2; pass++) {
+                  float extra = 0.0f;
+                  float wfree = 0.0f;
+                  for (int i = 0; i < 3; i++) {
+                    if (!a[i]) continue;
+                    float raw = eq;
+                    if (n > 1 && fabsf(vin[i] - avg_vin) > deadband)
+                      raw += (vin[i] - avg_vin) * gain;
+                    if (vin[i] + 0.01f >= avg_vin) raw += headroom;
+                    if (raw > max_i) extra += raw - max_i;
+                    if (!sat[i]) wfree += vin[i];
+                  }
+                  if (extra < 0.2f || wfree < 1.0f) break;
+                  for (int i = 0; i < 3; i++) {
+                    if (!a[i] || sat[i]) continue;
+                    t[i] += extra * vin[i] / wfree;
+                    if (t[i] > max_i) {
+                      t[i] = max_i;
+                      sat[i] = true;
+                    }
+                  }
+                }
+
+                // Total Power Limit ceiling
+                float p_want = 0.0f;
+                for (int i = 0; i < 3; i++)
+                  if (a[i]) p_want += t[i] * vout[i];
+                float p_cap = id(total_power_limit).state;
+                if (p_want > p_cap && p_want > 1.0f) {
+                  float k = p_cap / p_want;
+                  for (int i = 0; i < 3; i++)
+                    if (a[i]) t[i] *= k;
+                }
+
+                float cur[3] = {
+                  id(psu1_set_current_limit).has_state() ? id(psu1_set_current_limit).state : eq,
+                  id(psu2_set_current_limit).has_state() ? id(psu2_set_current_limit).state : eq,
+                  id(psu3_set_current_limit).has_state() ? id(psu3_set_current_limit).state : eq
+                };
+
+                float out[3];
+                for (int i = 0; i < 3; i++) {
+                  if (!a[i]) { out[i] = -1.0f; continue; }
+                  float d = t[i] - cur[i];
+                  if (d > step) d = step;
+                  if (d < -step) d = -step;
+                  out[i] = cur[i] + d;
+                }
+
+                if (out[0] >= 0.0f && fabsf(out[0] - cur[0]) >= send_d)
+                  id(psu1_set_current_limit).make_call().set_value(out[0]).perform();
+                if (out[1] >= 0.0f && fabsf(out[1] - cur[1]) >= send_d)
+                  id(psu2_set_current_limit).make_call().set_value(out[1]).perform();
+                if (out[2] >= 0.0f && fabsf(out[2] - cur[2]) >= send_d)
+                  id(psu3_set_current_limit).make_call().set_value(out[2]).perform();
 
                 ESP_LOGD("balance",
-                         "active=%d base=%.2f eq=%.2f I1=%.2f I2=%.2f I3=%.2f act=%.1f/%.1f/%.1f vin=%.1f/%.1f/%.1f",
-                         n, base, equal_i, i1, i2, i3, iact1, iact2, iact3, vin1, vin2, vin3);
+                         "active=%d eq=%.2f I1=%.2f I2=%.2f I3=%.2f act=%.1f/%.1f/%.1f vin=%.1f/%.1f/%.1f p=%.0f",
+                         n, eq, out[0], out[1], out[2],
+                         iact[0], iact[1], iact[2], vin[0], vin[1], vin[2], sum_p);
