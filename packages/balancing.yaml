@@ -1,7 +1,7 @@
 # packages/balancing.yaml
-# Split real DC load by AC voltage: weak phases are clamped,
-# the strong phase gets headroom. If a module hits max current,
-# leftover amps go to the others in proportion to Vin.
+# Weak AC phases sit at min current. Strong phases take the rest of
+# the real load + headroom. If a strong module hits max current,
+# leftover goes to the other strong modules by Vin.
 
 number:
   - platform: template
@@ -87,13 +87,14 @@ interval:
                   (a[2] && id(psu3_current).has_state()) ? id(psu3_current).state : 0.0f
                 };
 
-                float sum_vin = 0.0f, sum_iact = 0.0f, sum_p = 0.0f;
+                float sum_vin = 0.0f, sum_iact = 0.0f, sum_p = 0.0f, sum_vout = 0.0f;
                 for (int i = 0; i < 3; i++) {
                   if (!a[i]) continue;
                   if (vout[i] < 40.0f) vout[i] = 53.0f;
                   sum_vin += vin[i];
                   sum_iact += iact[i];
                   sum_p += vout[i] * iact[i];
+                  sum_vout += vout[i];
                 }
                 if (sum_vin < 1.0f) return;
 
@@ -101,47 +102,70 @@ interval:
                 float eq = sum_iact / n;
 
                 float deadband = ${balance_deadband};
-                float gain     = ${balance_gain};
                 float min_i    = ${balance_min_current};
                 float max_i    = ${balance_max_current};
                 float step     = ${balance_step};
                 float send_d   = ${balance_send_delta};
-                const float headroom = 1.5f;
+
+                bool weak[3] = {false, false, false};
+                int n_weak = 0, n_strong = 0;
+                float w_strong = 0.0f;
+                for (int i = 0; i < 3; i++) {
+                  if (!a[i]) continue;
+                  weak[i] = (n > 1) && ((avg_vin - vin[i]) > deadband);
+                  if (weak[i]) n_weak++;
+                  else { n_strong++; w_strong += vin[i]; }
+                }
 
                 float t[3] = {-1.0f, -1.0f, -1.0f};
                 bool sat[3] = {false, false, false};
-
+                float reserved_weak = 0.0f;
                 for (int i = 0; i < 3; i++) {
                   if (!a[i]) continue;
-                  float adj = 0.0f;
-                  if (n > 1 && fabsf(vin[i] - avg_vin) > deadband)
-                    adj = (vin[i] - avg_vin) * gain;
-                  t[i] = eq + adj;
-                  if (vin[i] + 0.01f >= avg_vin)
-                    t[i] += headroom;
-                  if (t[i] < min_i) t[i] = min_i;
-                  if (t[i] > max_i) {
-                    t[i] = max_i;
-                    sat[i] = true;
+                  if (weak[i]) {
+                    t[i] = min_i;
+                    reserved_weak += min_i;
                   }
                 }
 
-                // If a module is at max current, give leftover to the others by Vin
-                for (int pass = 0; pass < 2; pass++) {
-                  float extra = 0.0f;
-                  float wfree = 0.0f;
+                // Rest of the power budget goes to strong phase(s), not eq+gain
+                float avg_vout = sum_vout / n;
+                float p_cap = id(total_power_limit).state;
+                float rest = p_cap / avg_vout - reserved_weak;
+                if (rest < n_strong * min_i) rest = n_strong * min_i;
+
+                if (n_strong == 0) {
+                  for (int i = 0; i < 3; i++)
+                    if (a[i]) t[i] = eq;
+                } else {
                   for (int i = 0; i < 3; i++) {
-                    if (!a[i]) continue;
-                    float raw = eq;
-                    if (n > 1 && fabsf(vin[i] - avg_vin) > deadband)
-                      raw += (vin[i] - avg_vin) * gain;
-                    if (vin[i] + 0.01f >= avg_vin) raw += headroom;
-                    if (raw > max_i) extra += raw - max_i;
-                    if (!sat[i]) wfree += vin[i];
+                    if (!a[i] || weak[i]) continue;
+                    t[i] = rest * vin[i] / w_strong;
+                    if (t[i] < min_i) t[i] = min_i;
+                    if (t[i] > max_i) {
+                      t[i] = max_i;
+                      sat[i] = true;
+                    }
+                  }
+                }
+
+                // Strong module hit max → leftover to other strong by Vin
+                for (int pass = 0; pass < 2; pass++) {
+                  float extra = 0.0f, wfree = 0.0f;
+                  for (int i = 0; i < 3; i++) {
+                    if (!a[i] || weak[i]) continue;
+                    if (sat[i]) continue;
+                    wfree += vin[i];
+                  }
+                  for (int i = 0; i < 3; i++) {
+                    if (!a[i] || weak[i]) continue;
+                    if (n_strong == 0) break;
+                    float want = rest * vin[i] / w_strong;
+                    if (want > max_i) extra += want - max_i;
                   }
                   if (extra < 0.2f || wfree < 1.0f) break;
                   for (int i = 0; i < 3; i++) {
-                    if (!a[i] || sat[i]) continue;
+                    if (!a[i] || weak[i] || sat[i]) continue;
                     t[i] += extra * vin[i] / wfree;
                     if (t[i] > max_i) {
                       t[i] = max_i;
@@ -154,7 +178,6 @@ interval:
                 float p_want = 0.0f;
                 for (int i = 0; i < 3; i++)
                   if (a[i]) p_want += t[i] * vout[i];
-                float p_cap = id(total_power_limit).state;
                 if (p_want > p_cap && p_want > 1.0f) {
                   float k = p_cap / p_want;
                   for (int i = 0; i < 3; i++)
