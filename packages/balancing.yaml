@@ -5,6 +5,24 @@
 #
 # Runtime knobs (HA / web): deadband, min/max current, step, send delta.
 # balance_interval stays a compile-time substitution.
+#
+# Soft-start: after >=90s without telemetry a module is "long dead".
+# When it speaks again its current limit snaps to min, then the
+# normal step ramp takes over. A single missed 3s cycle does nothing.
+
+globals:
+  - id: psu1_was_long_dead
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+  - id: psu2_was_long_dead
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+  - id: psu3_was_long_dead
+    type: bool
+    restore_value: no
+    initial_value: 'true'
 
 number:
   - platform: template
@@ -109,30 +127,39 @@ switch:
 interval:
   - interval: ${balance_interval}
     then:
-      - if:
-          condition:
-            switch.is_on: balancing_enable
-          then:
-            - lambda: |-
-                const uint32_t now = millis();
-                const uint32_t stale_ms = 25000;
+      - lambda: |-
+          const uint32_t now = millis();
+          const uint32_t stale_ms = 25000;
+          const uint32_t long_dead_ms = 90000;
 
-                bool a[3];
-                a[0] = (id(last_ok_psu1) != 0) && (now - id(last_ok_psu1) < stale_ms)
-                       && id(psu1_output_enable).state
-                       && id(psu1_input_voltage).has_state();
-                a[1] = (id(last_ok_psu2) != 0) && (now - id(last_ok_psu2) < stale_ms)
-                       && id(psu2_output_enable).state
-                       && id(psu2_input_voltage).has_state();
-                a[2] = (id(last_ok_psu3) != 0) && (now - id(last_ok_psu3) < stale_ms)
-                       && id(psu3_output_enable).state
-                       && id(psu3_input_voltage).has_state();
+          uint32_t ok[3] = { id(last_ok_psu1), id(last_ok_psu2), id(last_ok_psu3) };
+          bool long_dead[3];
+          bool live[3];
+          for (int i = 0; i < 3; i++) {
+            live[i] = (ok[i] != 0) && (now - ok[i] < stale_ms);
+            long_dead[i] = (ok[i] == 0) || (now - ok[i] > long_dead_ms);
+          }
 
-                int n = (a[0] ? 1 : 0) + (a[1] ? 1 : 0) + (a[2] ? 1 : 0);
-                if (n == 0) {
-                  ESP_LOGD("balance", "No active modules, skip");
-                  return;
-                }
+          bool start[3];
+          start[0] = live[0] && id(psu1_was_long_dead);
+          start[1] = live[1] && id(psu2_was_long_dead);
+          start[2] = live[2] && id(psu3_was_long_dead);
+          id(psu1_was_long_dead) = long_dead[0];
+          id(psu2_was_long_dead) = long_dead[1];
+          id(psu3_was_long_dead) = long_dead[2];
+
+          if (!id(balancing_enable).state) return;
+
+          bool a[3];
+          a[0] = live[0] && id(psu1_input_voltage).has_state();
+          a[1] = live[1] && id(psu2_input_voltage).has_state();
+          a[2] = live[2] && id(psu3_input_voltage).has_state();
+
+          int n = (a[0] ? 1 : 0) + (a[1] ? 1 : 0) + (a[2] ? 1 : 0);
+          if (n == 0) {
+            ESP_LOGD("balance", "No active modules, skip");
+            return;
+          }
 
                 float vin[3] = {
                   a[0] ? id(psu1_input_voltage).state : 0.0f,
@@ -250,6 +277,13 @@ interval:
                   id(psu3_set_current_limit).has_state() ? id(psu3_set_current_limit).state : eq
                 };
 
+                for (int i = 0; i < 3; i++) {
+                  if (!a[i] || !start[i]) continue;
+                  t[i] = min_i;
+                  cur[i] = min_i;
+                  ESP_LOGI("balance", "PSU%d soft-start after long silence, limit=%.1f A", i + 1, min_i);
+                }
+
                 float out[3];
                 for (int i = 0; i < 3; i++) {
                   if (!a[i]) { out[i] = -1.0f; continue; }
@@ -259,11 +293,11 @@ interval:
                   out[i] = cur[i] + d;
                 }
 
-                if (out[0] >= 0.0f && fabsf(out[0] - cur[0]) >= send_d)
+                if (out[0] >= 0.0f && (start[0] || fabsf(out[0] - cur[0]) >= send_d))
                   id(psu1_set_current_limit).make_call().set_value(out[0]).perform();
-                if (out[1] >= 0.0f && fabsf(out[1] - cur[1]) >= send_d)
+                if (out[1] >= 0.0f && (start[1] || fabsf(out[1] - cur[1]) >= send_d))
                   id(psu2_set_current_limit).make_call().set_value(out[1]).perform();
-                if (out[2] >= 0.0f && fabsf(out[2] - cur[2]) >= send_d)
+                if (out[2] >= 0.0f && (start[2] || fabsf(out[2] - cur[2]) >= send_d))
                   id(psu3_set_current_limit).make_call().set_value(out[2]).perform();
 
                 ESP_LOGD("balance",
