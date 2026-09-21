@@ -6,9 +6,10 @@
 # Runtime knobs (HA / web): deadband, min/max current, step, send delta.
 # balance_interval stays a compile-time substitution.
 #
-# Soft-start: after >=90s without telemetry a module is "long dead".
-# When it speaks again its current limit snaps to min, then the
-# normal step ramp takes over. A single missed 3s cycle does nothing.
+# Soft-start: a module without real AC (Vin < 120 V) is "off-grid".
+# When Vin rises above 120 V its current limit snaps to min, then
+# the normal step ramp takes over. R48 still talks CAN from the
+# 48 V bus, so last_ok alone is not enough.
 
 globals:
   - id: psu1_was_long_dead
@@ -130,30 +131,33 @@ interval:
       - lambda: |-
           const uint32_t now = millis();
           const uint32_t stale_ms = 25000;
-          const uint32_t long_dead_ms = 90000;
+          const float ac_min = 120.0f;
 
           uint32_t ok[3] = { id(last_ok_psu1), id(last_ok_psu2), id(last_ok_psu3) };
-          bool long_dead[3];
+          float raw_vin[3] = {
+            id(psu1_input_voltage).has_state() ? id(psu1_input_voltage).state : 0.0f,
+            id(psu2_input_voltage).has_state() ? id(psu2_input_voltage).state : 0.0f,
+            id(psu3_input_voltage).has_state() ? id(psu3_input_voltage).state : 0.0f
+          };
+
           bool live[3];
+          bool ac[3];
           for (int i = 0; i < 3; i++) {
             live[i] = (ok[i] != 0) && (now - ok[i] < stale_ms);
-            long_dead[i] = (ok[i] == 0) || (now - ok[i] > long_dead_ms);
+            ac[i] = live[i] && (raw_vin[i] > ac_min);
           }
 
           bool start[3];
-          start[0] = live[0] && id(psu1_was_long_dead);
-          start[1] = live[1] && id(psu2_was_long_dead);
-          start[2] = live[2] && id(psu3_was_long_dead);
-          id(psu1_was_long_dead) = long_dead[0];
-          id(psu2_was_long_dead) = long_dead[1];
-          id(psu3_was_long_dead) = long_dead[2];
+          start[0] = ac[0] && id(psu1_was_long_dead);
+          start[1] = ac[1] && id(psu2_was_long_dead);
+          start[2] = ac[2] && id(psu3_was_long_dead);
+          id(psu1_was_long_dead) = !ac[0];
+          id(psu2_was_long_dead) = !ac[1];
+          id(psu3_was_long_dead) = !ac[2];
 
           if (!id(balancing_enable).state) return;
 
-          bool a[3];
-          a[0] = live[0] && id(psu1_input_voltage).has_state();
-          a[1] = live[1] && id(psu2_input_voltage).has_state();
-          a[2] = live[2] && id(psu3_input_voltage).has_state();
+          bool a[3] = { ac[0], ac[1], ac[2] };
 
           int n = (a[0] ? 1 : 0) + (a[1] ? 1 : 0) + (a[2] ? 1 : 0);
           if (n == 0) {
