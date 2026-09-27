@@ -1,15 +1,9 @@
 # packages/common.yaml
-# Common controls, polling and automatic CAN recovery
+# Common controls and polling. CAN Hard Reset is manual only.
 #
 # Required substitutions:
 #   can_tx_pin, can_rx_pin  — numeric GPIO (e.g. "6", "10")
 #   psu1_command_id, psu2_command_id, psu3_command_id
-
-globals:
-  - id: can_fail_count
-    type: int
-    restore_value: no
-    initial_value: '0'
 
 button:
   - platform: template
@@ -31,7 +25,6 @@ button:
             twai_start();
             ESP_LOGI("can", "CAN driver fully reinstalled");
             id(last_can_ok) = millis();
-            id(can_fail_count) = 0;
           } else {
             ESP_LOGE("can", "Failed to reinstall CAN driver");
           }
@@ -84,38 +77,3 @@ interval:
           use_extended_id: true
           can_id: ${psu3_command_id}
           data: [0x00, 0xF0, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00]
-
-  - interval: 5s
-    then:
-      - lambda: |-
-          uint32_t now = millis();
-
-          if (id(last_can_ok) != 0 && (now - id(last_can_ok) < 20000)) {
-            id(can_fail_count) = 0;
-            return;
-          }
-
-          id(can_fail_count) += 1;
-
-          if (id(can_fail_count) >= 4) {
-            ESP_LOGW("can", "No CAN activity for too long, performing Hard Reset");
-
-            twai_stop();
-            twai_driver_uninstall();
-            delay(150);
-
-            twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(
-                (gpio_num_t)${can_tx_pin}, (gpio_num_t)${can_rx_pin}, TWAI_MODE_NORMAL);
-            twai_timing_config_t t_config = TWAI_TIMING_CONFIG_125KBITS();
-            twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
-
-            if (twai_driver_install(&g_config, &t_config, &f_config) == ESP_OK) {
-              twai_start();
-              ESP_LOGI("can", "CAN driver automatically reinstalled");
-            } else {
-              ESP_LOGE("can", "Failed to reinstall CAN driver");
-            }
-
-            id(can_fail_count) = 0;
-            id(last_can_ok) = millis();
-          }
