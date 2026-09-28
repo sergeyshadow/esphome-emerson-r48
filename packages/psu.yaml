@@ -15,6 +15,8 @@ sensor:
     device_class: voltage
     accuracy_decimals: 2
     update_interval: never
+    filters:
+      - timeout: 15s
 
   - platform: template
     name: "${name} Output Current"
@@ -23,6 +25,8 @@ sensor:
     device_class: current
     accuracy_decimals: 2
     update_interval: never
+    filters:
+      - timeout: 15s
 
   - platform: template
     name: "${name} Current Limit"
@@ -30,6 +34,8 @@ sensor:
     unit_of_measurement: "A"
     accuracy_decimals: 1
     update_interval: never
+    filters:
+      - timeout: 15s
 
   - platform: template
     name: "${name} Temperature"
@@ -38,6 +44,8 @@ sensor:
     device_class: temperature
     accuracy_decimals: 1
     update_interval: never
+    filters:
+      - timeout: 15s
 
   - platform: template
     name: "${name} Input Voltage"
@@ -46,6 +54,8 @@ sensor:
     device_class: voltage
     accuracy_decimals: 1
     update_interval: never
+    filters:
+      - timeout: 15s
 
   - platform: template
     name: "${name} Output Power"
@@ -56,9 +66,14 @@ sensor:
     accuracy_decimals: 0
     update_interval: 3s
     lambda: |-
-      if (id(${prefix}_voltage).has_state() && id(${prefix}_current).has_state())
-        return id(${prefix}_voltage).state * id(${prefix}_current).state;
-      return {};
+      if (!id(${prefix}_voltage).has_state() || !id(${prefix}_current).has_state())
+        return {};
+      float v = id(${prefix}_voltage).state;
+      float i = id(${prefix}_current).state;
+      if (isnan(v) || isnan(i))
+        return {};
+      return v * i;
+
   - platform: template
     name: "${name} Load %"
     id: ${prefix}_load_percent
@@ -66,9 +81,12 @@ sensor:
     accuracy_decimals: 0
     update_interval: 3s
     lambda: |-
-      if (id(${prefix}_current).has_state())
-        return id(${prefix}_current).state / 60.0f * 100.0f;
-      return 0.0f;
+      if (!id(${prefix}_current).has_state())
+        return {};
+      float i = id(${prefix}_current).state;
+      if (isnan(i))
+        return {};
+      return i / 60.0f * 100.0f;
 
   - platform: template
     name: "${name} Power Limit"
@@ -79,9 +97,13 @@ sensor:
     accuracy_decimals: 0
     update_interval: 3s
     lambda: |-
-      if (id(${prefix}_voltage).has_state() && id(${prefix}_current_limit).has_state())
-        return id(${prefix}_voltage).state * id(${prefix}_current_limit).state;
-      return {};
+      if (!id(${prefix}_voltage).has_state() || !id(${prefix}_current_limit).has_state())
+        return {};
+      float v = id(${prefix}_voltage).state;
+      float lim = id(${prefix}_current_limit).state;
+      if (isnan(v) || isnan(lim))
+        return {};
+      return v * lim;
 
 binary_sensor:
   - platform: template
