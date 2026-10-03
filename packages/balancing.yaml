@@ -1,17 +1,17 @@
 # packages/balancing.yaml
-# Share Total Power Limit by sag from the best AC phase.
-# Sag <= deadband -> full weight. Sag >= 20 V -> weight 0 (min current).
-# Linear in between. A module that hits max current does not dump
-# its leftover onto a sagging phase; that budget stays unused.
+# Every cycle, compare each module to the best AC phase.
+# Sag <= deadband: raise the current limit. Step is full on the
+# best phase and shrinks to zero at the deadband edge.
+# Sag > deadband: lower the limit. Step reaches Balance Step at
+# 13 V of sag and stays there beyond that, down to min current.
+# A sagging phase is not given leftover budget.
 #
-# Runtime knobs (HA / web): deadband (full-weight window), min/max
-# current, step, send delta. balance_interval is compile-time.
-# Set Balance Deadband to 4 V for the agreed knee.
+# Set Balance Deadband to 4 V.
 #
 # Soft-start: a module without real AC (Vin < 120 V) is "off-grid".
 # When Vin rises above 120 V its current limit snaps to min, then
-# the normal step ramp takes over. R48 still talks CAN from the
-# 48 V bus, so last_ok alone is not enough.
+# the step takes over. R48 still talks CAN from the 48 V bus, so
+# last_ok alone is not enough.
 
 globals:
   - id: psu1_was_long_dead
@@ -134,7 +134,6 @@ interval:
           const uint32_t now = millis();
           const uint32_t stale_ms = 25000;
           const float ac_min = 120.0f;
-          const float zero_sag = 20.0f;
 
           uint32_t ok[3] = { id(last_ok_psu1), id(last_ok_psu2), id(last_ok_psu3) };
           float raw_vin[3] = {
@@ -204,55 +203,10 @@ interval:
           if (step < 0.2f) step = 0.2f;
           if (max_i <= min_i) max_i = min_i + 1.0f;
           if (full_sag < 0.5f) full_sag = 0.5f;
-          float span = zero_sag - full_sag;
-          if (span < 1.0f) span = 1.0f;
-
-          float w[3] = {0.0f, 0.0f, 0.0f};
-          float wsum = 0.0f;
-          for (int i = 0; i < 3; i++) {
-            if (!a[i]) continue;
-            float sag = best - vin[i];
-            if (n == 1 || sag <= full_sag) w[i] = 1.0f;
-            else if (sag >= zero_sag) w[i] = 0.0f;
-            else w[i] = (zero_sag - sag) / span;
-            wsum += w[i];
-          }
-
-          float t[3] = {-1.0f, -1.0f, -1.0f};
-          float avg_vout = sum_vout / n;
-          float budget = id(total_power_limit).state / avg_vout;
-          if (budget < n * min_i) budget = n * min_i;
-
-          float reserved = 0.0f;
-          for (int i = 0; i < 3; i++) {
-            if (!a[i] || w[i] > 0.001f) continue;
-            t[i] = min_i;
-            reserved += min_i;
-          }
-
-          float rest = budget - reserved;
-          if (rest < 0.0f) rest = 0.0f;
-          if (wsum < 0.001f) {
-            for (int i = 0; i < 3; i++)
-              if (a[i]) t[i] = min_i;
-          } else {
-            for (int i = 0; i < 3; i++) {
-              if (!a[i] || w[i] <= 0.001f) continue;
-              t[i] = rest * w[i] / wsum;
-              if (t[i] < min_i) t[i] = min_i;
-              if (t[i] > max_i) t[i] = max_i;
-            }
-          }
-
-          float p_want = 0.0f;
-          for (int i = 0; i < 3; i++)
-            if (a[i]) p_want += t[i] * vout[i];
-          float p_cap = id(total_power_limit).state;
-          if (p_want > p_cap && p_want > 1.0f) {
-            float k = p_cap / p_want;
-            for (int i = 0; i < 3; i++)
-              if (a[i]) t[i] *= k;
-          }
+          // Down-step reaches the full Balance Step at this sag.
+          const float full_down_sag = 13.0f;
+          float down_span = full_down_sag - full_sag;
+          if (down_span < 1.0f) down_span = 1.0f;
 
           float cur[3] = {
             id(psu1_set_current_limit).has_state() ? id(psu1_set_current_limit).state : eq,
@@ -260,20 +214,62 @@ interval:
             id(psu3_set_current_limit).has_state() ? id(psu3_set_current_limit).state : eq
           };
 
+          float sagv[3] = {-1.0f, -1.0f, -1.0f};
+          float delta[3] = {0.0f, 0.0f, 0.0f};
+          float up_w[3] = {0.0f, 0.0f, 0.0f};
+          float up_wsum = 0.0f;
+          for (int i = 0; i < 3; i++) {
+            if (!a[i]) continue;
+            float sag = best - vin[i];
+            if (sag < 0.0f) sag = 0.0f;
+            sagv[i] = sag;
+            if (sag > full_sag) {
+              float down = step * (sag - full_sag) / down_span;
+              if (down > step) down = step;
+              if (down < send_d) down = 0.0f;
+              float next = cur[i] - down;
+              if (next < min_i) next = min_i;
+              delta[i] = next - cur[i];
+            } else if (cur[i] < max_i - 0.05f) {
+              float up = step * (1.0f - sag / full_sag);
+              if (up > step) up = step;
+              if (up >= send_d) {
+                up_w[i] = up;
+                up_wsum += up;
+              }
+            }
+          }
+
+          float used = 0.0f;
+          for (int i = 0; i < 3; i++)
+            if (a[i]) used += cur[i] + delta[i];
+          float avg_vout = sum_vout / n;
+          float budget = id(total_power_limit).state / avg_vout;
+          if (budget < n * min_i) budget = n * min_i;
+          float room = budget - used;
+          if (room < 0.0f) room = 0.0f;
+          if (up_wsum > 0.01f && room >= send_d) {
+            float scale = (up_wsum > room) ? room / up_wsum : 1.0f;
+            for (int i = 0; i < 3; i++) {
+              if (up_w[i] <= 0.0f) continue;
+              float up = up_w[i] * scale;
+              if (up < send_d) continue;
+              float next = cur[i] + delta[i] + up;
+              if (next > max_i) next = max_i;
+              delta[i] = next - cur[i];
+            }
+          }
+
           for (int i = 0; i < 3; i++) {
             if (!a[i] || !start[i]) continue;
-            t[i] = min_i;
-            cur[i] = min_i;
+            delta[i] = min_i - cur[i];
             ESP_LOGI("balance", "PSU%d soft-start after long silence, limit=%.1f A", i + 1, min_i);
           }
 
           float out[3];
           for (int i = 0; i < 3; i++) {
             if (!a[i]) { out[i] = -1.0f; continue; }
-            float d = t[i] - cur[i];
-            if (d > step) d = step;
-            if (d < -step) d = -step;
-            out[i] = cur[i] + d;
+            out[i] = cur[i] + delta[i];
           }
 
           if (out[0] >= 0.0f && (start[0] || fabsf(out[0] - cur[0]) >= send_d))
@@ -284,7 +280,7 @@ interval:
             id(psu3_set_current_limit).make_call().set_value(out[2]).perform();
 
           ESP_LOGD("balance",
-                   "active=%d best=%.1f I1=%.2f I2=%.2f I3=%.2f w=%.2f/%.2f/%.2f act=%.1f/%.1f/%.1f vin=%.1f/%.1f/%.1f p=%.0f",
+                   "active=%d best=%.1f I1=%.2f I2=%.2f I3=%.2f sag=%.1f/%.1f/%.1f act=%.1f/%.1f/%.1f vin=%.1f/%.1f/%.1f p=%.0f",
                    n, best, out[0], out[1], out[2],
-                   w[0], w[1], w[2],
+                   sagv[0], sagv[1], sagv[2],
                    iact[0], iact[1], iact[2], vin[0], vin[1], vin[2], sum_p);
