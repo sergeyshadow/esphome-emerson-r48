@@ -90,7 +90,7 @@ substitutions:
 
 Each cycle the package compares every live module with the highest AC input voltage. Inside the deadband the current limit may step up. Past the deadband it steps down, and the full `balance_step` is reached at 13 V of sag. A sagging phase is not given leftover budget.
 
-This does not force equal watts on the three phases. It cuts a module whose AC voltage is below the best phase. If measured output current is already under the limit, this loop is not steering that module.
+If one phase is 230 V and the others are 220 V, equal current pulls the low phases down further and lets the high one rise. The package gives more current to the higher-voltage phase and cuts the sagging one. If measured output current is already under the limit, this loop is not steering that module.
 
 Parameters (set in your device YAML):
 
